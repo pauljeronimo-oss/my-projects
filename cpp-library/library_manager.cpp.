@@ -1,0 +1,365 @@
+// Library Manager
+// Compilation: g++ -std=c++17 -Wall -Wextra -O2 -o library library_manager.cpp
+// Execution:     ./library
+
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+int main() {
+    std::cout << "Library Manager" << std::endl;
+    return 0;
+}
+
+// ---------------------------------------------------------------
+// Data structure for a book
+// ---------------------------------------------------------------
+struct Book {
+    int id = 0;
+    std::string title;
+    std::string author;
+    int year = 0;
+    bool available = true;
+    std::string borrower;  // empty when the book is available
+};
+
+// ---------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------
+namespace util {
+
+std::string trim(const std::string& s) {
+    const char* ws = " \t\r\n";
+    std::size_t start = s.find_first_not_of(ws);
+    if (start == std::string::npos) return "";
+    std::size_t end = s.find_last_not_of(ws);
+    return s.substr(start, end - start + 1);
+}
+
+std::string toLower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+std::vector<std::string> split(const std::string& line, char delim) {
+    std::vector<std::string> parts;
+    std::string item;
+    std::stringstream ss(line);
+    while (std::getline(ss, item, delim)) parts.push_back(item);
+    // αν η γραμμή τελειώνει με διαχωριστικό, υπάρχει ένα κενό πεδίο στο τέλος
+    if (!line.empty() && line.back() == delim) parts.push_back("");
+    return parts;
+}
+
+// The '|' character is used as a delimiter in the file, so we replace it
+std::string sanitize(std::string s) {
+    std::replace(s.begin(), s.end(), '|', '/');
+    return s;
+}
+
+std::string readLine(const std::string& prompt) {
+    std::cout << prompt;
+    std::string line;
+    if (!std::getline(std::cin, line)) {
+        std::cout << "\nBye!\n";
+        std::exit(0);
+    }
+    return trim(line);
+}
+
+std::string readNonEmpty(const std::string& prompt) {
+    while (true) {
+        std::string s = readLine(prompt);
+        if (!s.empty()) return s;
+        std::cout << "  Value cannot be empty.\n";
+    }
+}
+
+int readInt(const std::string& prompt, int lo, int hi) {
+    while (true) {
+        std::string s = readLine(prompt);
+        try {
+            std::size_t pos = 0;
+            int v = std::stoi(s, &pos);
+            if (pos == s.size() && v >= lo && v <= hi) return v;
+        } catch (...) {
+        }
+        std::cout << "  Please enter a number between " << lo << " and " << hi << ".\n";
+    }
+}
+
+std::string clip(const std::string& s, std::size_t n) {
+    return s.size() <= n ? s : s.substr(0, n - 3) + "...";
+}
+
+}  // namespace util
+
+// ---------------------------------------------------------------
+// Class Library: holds the list of books and synchronizes with a file
+// ---------------------------------------------------------------
+class Library {
+public:
+    explicit Library(std::string filename) : filename_(std::move(filename)) { load(); }
+
+    const std::vector<Book>& books() const { return books_; }
+
+    int addBook(const std::string& title, const std::string& author, int year) {
+        Book b;
+        b.id = nextId_++;
+        b.title = util::sanitize(title);
+        b.author = util::sanitize(author);
+        b.year = year;
+        books_.push_back(b);
+        save();
+        return b.id;
+    }
+
+    bool removeBook(int id) {
+        auto it = std::find_if(books_.begin(), books_.end(),
+                               [id](const Book& b) { return b.id == id; });
+        if (it == books_.end()) return false;
+        books_.erase(it);
+        save();
+        return true;
+    }
+
+    std::vector<Book> search(const std::string& query) const {
+        std::string q = util::toLower(query);
+        std::vector<Book> result;
+        for (const Book& b : books_) {
+            if (util::toLower(b.title).find(q) != std::string::npos ||
+                util::toLower(b.author).find(q) != std::string::npos) {
+                result.push_back(b);
+            }
+        }
+        return result;
+    }
+
+    bool borrow(int id, const std::string& who, std::string& error) {
+        Book* b = findById(id);
+        if (!b) { error = "No book with that ID."; return false; }
+        if (!b->available) { error = "Book is already borrowed by " + b->borrower + "."; return false; }
+        b->available = false;
+        b->borrower = util::sanitize(who);
+        save();
+        return true;
+    }
+
+    bool giveBack(int id, std::string& error) {
+        Book* b = findById(id);
+        if (!b) { error = "No book with that ID."; return false; }
+        if (b->available) { error = "This book is not borrowed."; return false; }
+        b->available = true;
+        b->borrower.clear();
+        save();
+        return true;
+    }
+
+    // key: 't' = title, 'a' = author, 'y' = year
+    void sortBy(char key) {
+        std::sort(books_.begin(), books_.end(), [key](const Book& x, const Book& y) {
+            switch (key) {
+                case 'a': return util::toLower(x.author) < util::toLower(y.author);
+                case 'y': return x.year < y.year;
+                default:  return util::toLower(x.title) < util::toLower(y.title);
+            }
+        });
+    }
+
+    void loadSampleData() {
+        addBook("The Hobbit", "J.R.R. Tolkien", 1937);
+        addBook("1984", "George Orwell", 1949);
+        addBook("Animal Farm", "George Orwell", 1945);
+        addBook("Dune", "Frank Herbert", 1965);
+        addBook("Brave New World", "Aldous Huxley", 1932);
+        addBook("The Odyssey", "Homer", -700);
+        addBook("Crime and Punishment", "Fyodor Dostoevsky", 1866);
+        addBook("Zorba the Greek", "Nikos Kazantzakis", 1946);
+    }
+
+    void printStats() const {
+        if (books_.empty()) {
+            std::cout << "Library is empty.\n";
+            return;
+        }
+        int borrowed = 0;
+        std::map<std::string, int> perAuthor;
+        const Book* oldest = &books_[0];
+        const Book* newest = &books_[0];
+        for (const Book& b : books_) {
+            if (!b.available) ++borrowed;
+            ++perAuthor[b.author];
+            if (b.year < oldest->year) oldest = &b;
+            if (b.year > newest->year) newest = &b;
+        }
+        auto top = std::max_element(perAuthor.begin(), perAuthor.end(),
+                                    [](const auto& l, const auto& r) { return l.second < r.second; });
+
+        std::cout << "Total books : " << books_.size() << "\n"
+                  << "Available   : " << books_.size() - borrowed << "\n"
+                  << "Borrowed    : " << borrowed << "\n"
+                  << "Authors     : " << perAuthor.size() << "\n"
+                  << "Top author  : " << top->first << " (" << top->second << " books)\n"
+                  << "Oldest book : " << oldest->title << " (" << oldest->year << ")\n"
+                  << "Newest book : " << newest->title << " (" << newest->year << ")\n";
+    }
+
+private:
+    Book* findById(int id) {
+        for (Book& b : books_)
+            if (b.id == id) return &b;
+        return nullptr;
+    }
+
+    // Line format: id|title|author|year|available|borrower
+    void save() const {
+        std::ofstream out(filename_);
+        if (!out) {
+            std::cerr << "Warning: could not write to " << filename_ << "\n";
+            return;
+        }
+        for (const Book& b : books_) {
+            out << b.id << '|' << b.title << '|' << b.author << '|' << b.year << '|'
+                << (b.available ? 1 : 0) << '|' << b.borrower << '\n';
+        }
+    }
+
+    void load() {
+        std::ifstream in(filename_);
+        if (!in) return;  // πρώτη εκτέλεση, δεν υπάρχει αρχείο ακόμα
+        std::string line;
+        while (std::getline(in, line)) {
+            auto f = util::split(line, '|');
+            if (f.size() != 6) continue;
+            try {
+                Book b;
+                b.id = std::stoi(f[0]);
+                b.title = f[1];
+                b.author = f[2];
+                b.year = std::stoi(f[3]);
+                b.available = (f[4] == "1");
+                b.borrower = f[5];
+                books_.push_back(b);
+                nextId_ = std::max(nextId_, b.id + 1);
+            } catch (...) {
+                std::cerr << "Skipping corrupted line: " << line << "\n";
+            }
+        }
+    }
+
+    std::vector<Book> books_;
+    int nextId_ = 1;
+    std::string filename_;
+};
+
+// ---------------------------------------------------------------
+// Display functions
+// ---------------------------------------------------------------
+void printBooks(const std::vector<Book>& books) {
+    if (books.empty()) {
+        std::cout << "  (no books found)\n";
+        return;
+    }
+    std::cout << std::left << std::setw(5) << "ID" << std::setw(30) << "Title"
+              << std::setw(24) << "Author" << std::setw(7) << "Year" << "Status\n";
+    std::cout << std::string(80, '-') << "\n";
+    for (const Book& b : books) {
+        std::cout << std::left << std::setw(5) << b.id << std::setw(30) << util::clip(b.title, 28)
+                  << std::setw(24) << util::clip(b.author, 22) << std::setw(7) << b.year
+                  << (b.available ? "available" : "borrowed by " + b.borrower) << "\n";
+    }
+}
+
+void printMenu() {
+    std::cout << "\n===== LIBRARY MANAGER =====\n"
+              << " 1. List all books\n"
+              << " 2. Add a book\n"
+              << " 3. Remove a book\n"
+              << " 4. Search (title or author)\n"
+              << " 5. Borrow a book\n"
+              << " 6. Return a book\n"
+              << " 7. Sort the list\n"
+              << " 8. Statistics\n"
+              << " 9. Load sample data\n"
+              << " 0. Exit\n";
+}
+
+// ---------------------------------------------------------------
+// Main program
+// ---------------------------------------------------------------
+int main() {
+    Library lib("books.txt");
+    std::cout << "Loaded " << lib.books().size() << " book(s) from books.txt\n";
+
+    while (true) {
+        printMenu();
+        int choice = util::readInt("Choice: ", 0, 9);
+        std::string err;
+
+        switch (choice) {
+            case 1:
+                printBooks(lib.books());
+                break;
+            case 2: {
+                std::string title = util::readNonEmpty("Title: ");
+                std::string author = util::readNonEmpty("Author: ");
+                int year = util::readInt("Year: ", -3000, 2100);
+                int id = lib.addBook(title, author, year);
+                std::cout << "Added with ID " << id << ".\n";
+                break;
+            }
+            case 3: {
+                int id = util::readInt("ID to remove: ", 1, 1000000);
+                std::cout << (lib.removeBook(id) ? "Removed.\n" : "No book with that ID.\n");
+                break;
+            }
+            case 4: {
+                std::string q = util::readNonEmpty("Search for: ");
+                printBooks(lib.search(q));
+                break;
+            }
+            case 5: {
+                int id = util::readInt("ID to borrow: ", 1, 1000000);
+                std::string who = util::readNonEmpty("Borrower name: ");
+                if (lib.borrow(id, who, err)) std::cout << "Enjoy your book!\n";
+                else std::cout << "Error: " << err << "\n";
+                break;
+            }
+            case 6: {
+                int id = util::readInt("ID to return: ", 1, 1000000);
+                if (lib.giveBack(id, err)) std::cout << "Thanks for returning it.\n";
+                else std::cout << "Error: " << err << "\n";
+                break;
+            }
+            case 7: {
+                std::string k = util::toLower(util::readLine("Sort by (t)itle, (a)uthor, (y)ear: "));
+                if (k == "t" || k == "a" || k == "y") {
+                    lib.sortBy(k[0]);
+                    printBooks(lib.books());
+                } else {
+                    std::cout << "Unknown sort key.\n";
+                }
+                break;
+            }
+            case 8:
+                lib.printStats();
+                break;
+            case 9:
+                lib.loadSampleData();
+                std::cout << "Sample data added.\n";
+                break;
+            case 0:
+                std::cout << "Goodbye!\n";
+                return 0;
+        }
+    }
+}
