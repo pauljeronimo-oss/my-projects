@@ -1,0 +1,267 @@
+import time
+
+# ==========================
+# PLAYER
+# ==========================
+
+class Player:
+    def __init__(self, name):
+        self.name = name
+        self.hp = 100
+        self.max_hp = 100
+        self.attack = 15
+        self.defense = 5
+        self.gold = 0
+        self.level = 1
+        self.exp = 0
+        self.inventory = ["Small Potion"]
+
+    def show_stats(self):
+        print("\n===== PLAYER STATS =====")
+        print(f"Name: {self.name}")
+        print(f"Level: {self.level}")
+        print(f"HP: {self.hp}/{self.max_hp}")
+        print(f"Attack: {self.attack}")
+        print(f"Defense: {self.defense}")
+        print(f"Gold: {self.gold}")
+        print(f"EXP: {self.exp}")
+        print(f"Inventory: {', '.join(self.inventory)}")
+        print("========================\n")
+
+    def gain_exp(self, amount):
+        self.exp += amount
+        print(f"You gained {amount} EXP!")
+
+        while self.exp >= self.level * 50:
+            self.exp -= self.level * 50
+            self.level += 1
+            self.max_hp += 20
+            self.hp = self.max_hp
+            self.attack += 3
+            self.defense += 2
+
+            print("\n*** LEVEL UP! ***")
+            print(f"You are now level {self.level}!")
+
+    def use_potion(self):
+        if "Small Potion" in self.inventory:
+            self.inventory.remove("Small Potion")
+            heal = 30
+            self.hp = min(self.max_hp, self.hp + heal)
+            print(f"You healed {heal} HP.")
+        else:
+            print("No potions available!")
+
+# ==========================
+# ENEMY
+# ==========================
+
+class Enemy:
+    def __init__(self, level):
+        names = [
+            "Goblin",
+            "Skeleton",
+            "Bandit",
+            "Wolf",
+            "Dark Mage",
+            "Orc"
+        ]
+
+        self.name = random.choice(names)
+        self.hp = 40 + level * 10
+        self.attack = 8 + level * 2
+        self.defense = 2 + level
+
+# ==========================
+# COMBAT
+# ==========================
+
+def battle(player):
+    enemy = Enemy(player.level)
+
+    print("\nAn enemy appears!")
+    print(f"{enemy.name} (HP: {enemy.hp})")
+
+    while enemy.hp > 0 and player.hp > 0:
+
+        print("\n1. Attack")
+        print("2. Use Potion")
+        print("3. Run")
+
+        choice = input("> ")
+
+        if choice == "1":
+            damage = max(
+                1,
+                player.attack + random.randint(-2, 5) - enemy.defense
+            )
+
+            enemy.hp -= damage
+
+            print(
+                f"You hit the {enemy.name} "
+                f"for {damage} damage!"
+            )
+
+        elif choice == "2":
+            player.use_potion()
+
+        elif choice == "3":
+            if random.random() < 0.5:
+                print("You escaped!")
+                return None
+            else:
+                print("Failed to escape!")
+
+        if enemy.hp > 0:
+            damage = max(
+                1,
+                enemy.attack + random.randint(-2, 3)
+                - player.defense
+            )
+
+            player.hp -= damage
+
+            print(
+                f"The {enemy.name} hits you "
+                f"for {damage} damage!"
+            )
+
+            print(
+                f"Your HP: {player.hp}/{player.max_hp}"
+            )
+
+    if player.hp <= 0:
+        print("\nYou were defeated...")
+        return "dead"
+
+    reward_gold = random.randint(10, 25)
+    reward_exp = random.randint(20, 40)
+
+    player.gold += reward_gold
+
+    print(f"\nYou defeated the {enemy.name}!")
+    print(f"You found {reward_gold} gold.")
+
+    player.gain_exp(reward_exp)
+    return None
+
+
+# ==========================
+# SHOP
+# ==========================
+
+def shop(player):
+    while True:
+
+        print("\n===== SHOP =====")
+        print("1. Small Potion (10 gold)")
+        print("2. Iron Sword (+5 attack) (50 gold)")
+        print("3. Iron Armor (+3 defense) (50 gold)")
+        print("4. Exit")
+
+        choice = input("> ")
+
+        if choice == "1":
+            if player.gold >= 10:
+                player.gold -= 10
+                player.inventory.append("Small Potion")
+                print("Potion purchased.")
+            else:
+                print("Not enough gold.")
+
+        elif choice == "2":
+            if player.gold >= 50:
+                player.gold -= 50
+                player.attack += 5
+                print("Attack increased!")
+            else:
+                print("Not enough gold.")
+
+        elif choice == "3":
+            if player.gold >= 50:
+                player.gold -= 50
+                player.defense += 3
+                print("Defense increased!")
+            else:
+                print("Not enough gold.")
+
+        elif choice == "4":
+            break
+
+# ==========================
+# RANDOM EVENT
+# ==========================
+
+def random_event(player):
+
+    event = random.randint(1, 3)
+
+    if event == 1:
+        gold = random.randint(5, 20)
+        player.gold += gold
+        print(f"\nYou found a treasure chest with {gold} gold!")
+
+    elif event == 2:
+        print("\nYou discovered an abandoned camp.")
+        player.inventory.append("Small Potion")
+        print("You found a potion!")
+
+    else:
+        print("\nNothing happened.")
+
+# ==========================
+# GAME LOOP
+# ==========================
+
+def game():
+
+    print("========================")
+    print("  PYTHON RPG ADVENTURE  ")
+    print("========================")
+
+    name = input("Enter your hero name: ")
+
+    player = Player(name)
+
+    while True:
+
+        if player.hp <= 0:
+            print("\nGAME OVER")
+            break
+
+        print("\n===== MAIN MENU =====")
+        print("1. Explore")
+        print("2. Battle")
+        print("3. Shop")
+        print("4. Stats")
+        print("5. Quit")
+
+        choice = input("> ")
+
+        if choice == "1":
+            random_event(player)
+
+        elif choice == "2":
+            result = battle(player)
+
+            if result == "dead":
+                break
+
+        elif choice == "3":
+            shop(player)
+
+        elif choice == "4":
+            player.show_stats()
+
+        elif choice == "5":
+            print("Goodbye!")
+            break
+
+        else:
+            print("Invalid option.")
+
+        time.sleep(1)
+
+if __name__ == "__main__":
+    game()
